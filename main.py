@@ -1323,6 +1323,23 @@ dp = Dispatcher()
 
 from aiogram import types
 
+@dp.startup()
+async def on_startup():
+    """Load all active broadcast users from the database into memory on bot startup."""
+    global all_users
+    try:
+        if db:
+            users = await asyncio.to_thread(db.get_broadcast_users)
+            loaded_ids = set(str(uid) for uid in users)
+            # Merge with any IDs already in memory (e.g. from module-level load_users())
+            all_users.update(loaded_ids)
+            logger.info(f"✅ STARTUP: Loaded {len(loaded_ids)} broadcast users from database into memory "
+                        f"(total in memory: {len(all_users)})")
+        else:
+            logger.warning("⚠️ STARTUP: Database unavailable — broadcast user list not reloaded")
+    except Exception as e:
+        logger.error(f"❌ STARTUP: Failed to reload broadcast users from database: {e}")
+
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     print("START COMMAND RECEIVED")
