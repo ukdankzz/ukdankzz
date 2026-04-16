@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UKDANKZZ - Product Menu</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .menu-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .logo {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+
+        .tagline {
+            color: #7f8c8d;
+            font-size: 1.1em;
+        }
+
+        .section {
+            margin-bottom: 35px;
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 25px;
+            border-left: 5px solid #3498db;
+        }
+
+        .section h2 {
+            color: #2c3e50;
+            font-size: 1.5em;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+        }
+
+        .section h2:before {
+            content: "🌿";
+            margin-right: 10px;
+        }
+
+        .vapes h2:before { content: "💨"; }
+        .mushroom h2:before { content: "🍄"; }
+        .edibles h2:before { content: "🍬"; }
+        .dust h2:before { content: "✨"; }
+
+        .product {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
+            transition: transform 0.3s ease;
+        }
+
+        .product:hover {
+            transform: translateY(-3px);
+        }
+
+        .product-name {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .pricing {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+
+        .price-item {
+            background: #ecf0f1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .price-amount {
+            display: block;
+            color: #27ae60;
+            font-weight: bold;
+            font-size: 1.1em;
+        }
+
+        .bulk-discount {
+            background: #e8f5e8;
+            border: 2px dashed #27ae60;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            text-align: center;
+        }
+
+        .bulk-discount h3 {
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+
+        .contact-info {
+            background: #2c3e50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+
+        .empty-section {
+            color: #7f8c8d;
+            font-style: italic;
+            text-align: center;
+            padding: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="menu-container">
+        <div class="header">
+            <div class="logo">UKDANKZZ</div>
+            <div class="tagline">Premium Quality • Fast Delivery • Secure Payment</div>
+        </div>
+
+        <div class="section">
+            <h2>UK Bud</h2>
+            <div class="empty-section">Coming Soon - New UK Strains</div>
+        </div>
+
+        <div class="section">
+            <h2>USA Buds 🇺🇸</h2>
+
+            <div class="product">
+                <div class="product-name">Blue nerds</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£30</span></div>
+                    <div class="price-item">7g<span class="price-amount">£50</span></div>
+                    <div class="price-item">14g<span class="price-amount">£85</span></div>
+                    <div class="price-item">28g<span class="price-amount">£160</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£310</span></div>
+                    <div class="price-item">4oz<span class="price-amount">£580</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Permanent marker</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£30</span></div>
+                    <div class="price-item">7g<span class="price-amount">£50</span></div>
+                    <div class="price-item">14g<span class="price-amount">£85</span></div>
+                    <div class="price-item">28g<span class="price-amount">£160</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£310</span></div>
+                    <div class="price-item">4oz<span class="price-amount">£580</span></div>
+                </div>
+            </div>
+
+            <div class="bulk-discount">
+                <h3>🎯 BULK DISCOUNT SPECIAL</h3>
+                <p>Order both Blue nerds + Permanent marker in the same size and pay the single price for each!</p>
+                <p><strong>Example:</strong> 3.5g Blue nerds + 3.5g Permanent marker = £50 total (instead of £60)</p>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>Top Shelf</h2>
+
+            <div class="product">
+                <div class="product-name">Strawberry glue</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£35</span></div>
+                    <div class="price-item">7g<span class="price-amount">£60</span></div>
+                    <div class="price-item">14g<span class="price-amount">£100</span></div>
+                    <div class="price-item">1oz<span class="price-amount">£175</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£340</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Martian candy</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£35</span></div>
+                    <div class="price-item">7g<span class="price-amount">£60</span></div>
+                    <div class="price-item">14g<span class="price-amount">£100</span></div>
+                    <div class="price-item">1oz<span class="price-amount">£175</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£340</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">White truffles</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£35</span></div>
+                    <div class="price-item">7g<span class="price-amount">£60</span></div>
+                    <div class="price-item">14g<span class="price-amount">£100</span></div>
+                    <div class="price-item">1oz<span class="price-amount">£175</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£340</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Tropic Truffle</div>
+                <div class="pricing">
+                    <div class="price-item">3.5g<span class="price-amount">£35</span></div>
+                    <div class="price-item">7g<span class="price-amount">£60</span></div>
+                    <div class="price-item">14g<span class="price-amount">£100</span></div>
+                    <div class="price-item">1oz<span class="price-amount">£175</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£340</span></div>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="section dust">
+            <h2>Dust</h2>
+            <div class="product">
+                <div class="product-name">Train wreck ammi 🔥 🍋</div>
+                <div class="pricing">
+                    <div class="price-item">1oz<span class="price-amount">£40</span></div>
+                    <div class="price-item">2oz<span class="price-amount">£70</span></div>
+                    <div class="price-item">4.5oz<span class="price-amount">£140</span></div>
+                    <div class="price-item">9oz<span class="price-amount">£250</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section vapes">
+            <h2>Vapes</h2>
+
+            <div class="product">
+                <div class="product-name">Unicorn piss</div>
+                <div class="pricing">
+                    <div class="price-item">1<span class="price-amount">£35</span></div>
+                    <div class="price-item">2<span class="price-amount">£60</span></div>
+                    <div class="price-item">5<span class="price-amount">£120</span></div>
+                    <div class="price-item">10<span class="price-amount">£200</span></div>
+                    <div class="price-item">20<span class="price-amount">£365</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Mimosa</div>
+                <div class="pricing">
+                    <div class="price-item">1<span class="price-amount">£35</span></div>
+                    <div class="price-item">2<span class="price-amount">£60</span></div>
+                    <div class="price-item">5<span class="price-amount">£120</span></div>
+                    <div class="price-item">10<span class="price-amount">£200</span></div>
+                    <div class="price-item">20<span class="price-amount">£365</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Hawaiian haze</div>
+                <div class="pricing">
+                    <div class="price-item">1<span class="price-amount">£35</span></div>
+                    <div class="price-item">2<span class="price-amount">£60</span></div>
+                    <div class="price-item">5<span class="price-amount">£120</span></div>
+                    <div class="price-item">10<span class="price-amount">£200</span></div>
+                    <div class="price-item">20<span class="price-amount">£365</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Purple punch</div>
+                <div class="pricing">
+                    <div class="price-item">1<span class="price-amount">£35</span></div>
+                    <div class="price-item">2<span class="price-amount">£60</span></div>
+                    <div class="price-item">5<span class="price-amount">£120</span></div>
+                    <div class="price-item">10<span class="price-amount">£200</span></div>
+                    <div class="price-item">20<span class="price-amount">£365</span></div>
+                </div>
+            </div>
+
+            <div class="product">
+                <div class="product-name">Blue zkittles</div>
+                <div class="pricing">
+                    <div class="price-item">1<span class="price-amount">£35</span></div>
+                    <div class="price-item">2<span class="price-amount">£60</span></div>
+                    <div class="price-item">5<span class="price-amount">£120</span></div>
+                    <div class="price-item">10<span class="price-amount">£200</span></div>
+                    <div class="price-item">20<span class="price-amount">£365</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section mushroom">
+            <h2>Mushroom</h2>
+            <div class="product">
+                <div class="product-name">Apes</div>
+                <div class="pricing">
+                    <div class="price-item">1g<span class="price-amount">£10</span></div>
+                    <div class="price-item">3.5g<span class="price-amount">£30</span></div>
+                    <div class="price-item">1oz<span class="price-amount">£165</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="section edibles">
+            <h2>RELAX EDIBLES</h2>
+
+            <div class="product">
+                <div class="product-name">PINA COLADA</div>
+                <div class="product-name">COLA</div>
+                <div class="product-name">PEACH</div>
+                <div class="product-name">CHERRY</div>
+                <div class="product-name">BLUE RASPBERRY</div>
+                <div class="description">Each flavor contains 500mg</div>
+            </div>
+        </div>
+
+        <div class="contact-info">
+            <h3>📞 Contact & Order</h3>
+            <p>Telegram: @ogukdankzz</p>
+            <p>💳 Payment: PayPal • Crypto (LTC) • Cash in Post</p>
+            <p>📦 Fast & Discreet Delivery Available</p>
+        </div>
+    </div>
+</body>
+</html>
