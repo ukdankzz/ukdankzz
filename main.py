@@ -2419,7 +2419,8 @@ async def admin_customer_lookup_process(message: types.Message, state: FSMContex
         total_spent = sum(o.get('total_price', 0) for o in orders)
         confirmed_orders = [o for o in orders if o.get('status') == 'confirmed']
         
-_id = first_order.get('user_id', 'N/A')
+        first_order = orders[0]
+        display_user_id = first_order.get('user_id', 'N/A')
         display_username = first_order.get('username', 'N/A')
         
         text = f"👤 *Customer Profile*\n\n"
