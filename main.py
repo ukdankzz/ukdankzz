@@ -1,14 +1,17 @@
-ort fcntl
+import fcntl
 import signal
 import atexit
 import time
 import traceback
 import logging
+import sys
+import os
+
 from functools import wraps
 from typing import Dict, List, Any, Callable
+
 from flask import Flask, request, jsonify, abort
-from aiogram import Bot, Dispatcher, types, Fimport sys
-import os
+from aiogram import Bot, Dispatcher, types
 
 # CRITICAL: Only allow startup via start_bot.sh which sets BOT_START_AUTHORIZED=1
 # This prevents .replit entrypoint from auto-running and causing duplicate bot instances
