@@ -1323,14 +1323,22 @@ dp = Dispatcher()
 
 from aiogram import types
 
-@dp.startup()
-async def on_startup():
-    """Reload in-memory data from the database on bot startup to survive crashes/restarts."""
-    global user_orders
+async def load_startup_data():
+    """Load persisted data from the database into memory before polling starts."""
+    global user_orders, all_users
 
     if not db:
         logger.warning("⚠️ Startup restore skipped: database not available")
         return
+
+    # --- Restore broadcast_users into all_users ---
+    try:
+        users = db.get_broadcast_users()
+        loaded_users = set(str(uid) for uid in users)
+        all_users.update(loaded_users)
+        logger.info(f"✅ Startup restore: loaded {len(loaded_users)} broadcast users into all_users ({len(all_users)} total)")
+    except Exception as e:
+        logger.error(f"❌ Startup restore failed for broadcast_users: {e}")
 
     # --- Restore user_orders from the orders table ---
     try:
@@ -8141,6 +8149,11 @@ async def main():
                 
                 # START POLLING - SINGLE ATTEMPT ONLY (no retry loop to prevent duplicate polling)
                 try:
+                    # Load persisted data from database before polling starts
+                    print("📦 Loading startup data from database...")
+                    await load_startup_data()
+                    print("✅ Startup data loaded successfully")
+
                     print("🚀 Starting polling (single clean attempt)...")
                     await dp.start_polling(
                         bot, 
