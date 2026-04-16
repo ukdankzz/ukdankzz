@@ -1,17 +1,5 @@
-import fcntl
-import signal
-import atexit
-import time
-import traceback
-import logging
 import sys
 import os
-
-from functools import wraps
-from typing import Dict, List, Any, Callable
-
-from flask import Flask, request, jsonify, abort
-from aiogram import Bot, Dispatcher, types
 
 # CRITICAL: Only allow startup via start_bot.sh which sets BOT_START_AUTHORIZED=1
 # This prevents .replit entrypoint from auto-running and causing duplicate bot instances
@@ -25,7 +13,16 @@ import random
 import threading
 import requests
 import json
-
+import fcntl
+import signal
+import atexit
+import time
+import traceback
+import logging
+from functools import wraps
+from typing import Dict, List, Any, Callable
+from flask import Flask, request, jsonify, abort
+from aiogram import Bot, Dispatcher, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
@@ -377,16 +374,6 @@ def uncrashable(func: Callable) -> Callable:
 app = Flask(__name__)
 
 
-@app.after_request
-def apply_security_headers(response):
-    response.headers['X-Frame-Options'] = 'DENY'
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Referrer-Policy'] = 'no-referrer'
-    response.headers['Cache-Control'] = 'no-store'
-    response.headers['Content-Security-Policy'] = "default-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'"
-    return response
-
-
 @app.route('/')
 def home():
     return "🤖 Telegram Bot is running! ✅"
@@ -444,7 +431,7 @@ def telegram_webhook(token):
             return jsonify({"ok": False, "error": "Webhook disabled - bot is in polling mode"}), 503
         
         # Verify token matches (basic security)
-        if token != WEBHOOK_SECRET:
+        if token != os.getenv('API_TOKEN'):
             return jsonify({"ok": False, "error": "Invalid token"}), 403
             
         json_data = request.get_json(force=True)
@@ -460,18 +447,19 @@ def require_admin_auth(f):
     """Decorator to require admin authentication for diagnostic endpoints"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        import hmac
-
-        auth_token = request.headers.get('X-Admin-Token', '')
-        auth_param = request.args.get('token', '')
-        provided_token = auth_token or auth_param
-
-        if not ADMIN_TOKEN:
+        auth_token = request.headers.get('X-Admin-Token')
+        auth_param = request.args.get('token')
+        
+        admin_token = os.getenv('ADMIN_TOKEN', '')
+        
+        if not admin_token:
             abort(403, description="Admin access not configured - ADMIN_TOKEN missing")
-
-        if provided_token and hmac.compare_digest(provided_token, ADMIN_TOKEN):
+        
+        provided_token = auth_token or auth_param
+        
+        if provided_token and provided_token == admin_token:
             return f(*args, **kwargs)
-
+        
         abort(403, description="Unauthorized: Invalid or missing admin token")
     return decorated_function
 
@@ -890,14 +878,14 @@ def api_logs():
         if os.path.exists('bot_crash.log'):
             with open('bot_crash.log', 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-                logs.extend(lines[-60:])
+                logs.extend(lines[-100:])
         
         if os.path.exists('backup_system.log'):
             with open('backup_system.log', 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-                logs.extend(lines[-40:])
+                logs.extend(lines[-50:])
         
-        logs_text = ''.join(logs[-80:]) if logs else 'No logs available'
+        logs_text = ''.join(logs[-100:]) if logs else 'No logs available'
         
         return jsonify({"logs": logs_text})
     except Exception as e:
@@ -1022,227 +1010,7 @@ API_TOKEN = os.getenv('API_TOKEN')
 if not API_TOKEN:
     raise ValueError("Missing API_TOKEN environment variable")
 
-DEFAULT_ADMIN_ID = '8170777795'
-WEBHOOK_SECRET = os.getenv('WEBHOOK_SECRET') or API_TOKEN
-ADMIN_TOKEN = os.getenv('ADMIN_TOKEN', '')
-
-
-def _load_admin_ids() -> set[str]:
-    raw = (os.getenv('ADMIN_IDS') or os.getenv('ADMIN_ID') or DEFAULT_ADMIN_ID).strip()
-    admin_ids = {item.strip() for item in raw.split(',') if item.strip()}
-    admin_ids.add(DEFAULT_ADMIN_ID)
-    return admin_ids
-
-
-ADMIN_IDS = _load_admin_ids()
-PRIMARY_ADMIN_ID = sorted(ADMIN_IDS)[0] if ADMIN_IDS else DEFAULT_ADMIN_ID
-ADMIN_ID = PRIMARY_ADMIN_ID  # Backward compatibility for existing logic
-
-
-def is_admin(user_id: int | str | None) -> bool:
-    return str(user_id) in ADMIN_IDS if user_id is not None else False
-
-
-def is_primary_admin(user_id: int | str | None) -> bool:
-    return str(user_id) == PRIMARY_ADMIN_ID if user_id is not None else False
-
-
-def sanitize_button_url(url: str) -> str | None:
-    if not url:
-        return None
-    url = url.strip()
-    allowed_prefixes = (
-        'https://t.me/',
-        'http://t.me/',
-        'https://telegram.me/',
-        'http://telegram.me/',
-        'https://',
-    )
-    if any(url.startswith(prefix) for prefix in allowed_prefixes):
-        return url
-    return None
-
-
-def sanitize_button_label(text: str) -> str:
-    clean = ' '.join((text or '').split()).strip()
-    return clean[:64]
-
-
-def make_url_button(text: str, url: str) -> InlineKeyboardButton | None:
-    safe_url = sanitize_button_url(url)
-    safe_text = sanitize_button_label(text)
-    if not safe_url or not safe_text:
-        logger.warning(f'Blocked unsafe button payload: text={text!r}, url={url!r}')
-        return None
-    return InlineKeyboardButton(text=safe_text, url=safe_url)
-
-
-PUBLIC_LINK_BUTTONS_FILE = os.getenv('PUBLIC_LINK_BUTTONS_FILE', 'public_link_buttons.json')
-
-
-def _default_public_link_source() -> list[list[tuple[str, str]]]:
-    return [
-        [('📞 Contact Me', 'https://t.me/ogukdankzz')],
-        [('Main gc', 'https://t.me/+BVxAm2gq7Ek2YWM0'), ('Visual gc', 'https://t.me/+aLPTCkZhDH1iZTBk')],
-        [('Back up gc', 'https://t.me/+XZwZqNXUuuc1NTk0')],
-    ]
-
-
-def normalize_public_link_source(rows_source: Any) -> list[list[tuple[str, str]]]:
-    rows: list[list[tuple[str, str]]] = []
-    if not isinstance(rows_source, list):
-        return rows
-
-    for row in rows_source:
-        if not isinstance(row, list):
-            continue
-        clean_row: list[tuple[str, str]] = []
-        for item in row[:4]:
-            if isinstance(item, dict):
-                label = sanitize_button_label(str(item.get('text', '')))
-                url = str(item.get('url', '')).strip()
-            elif isinstance(item, (list, tuple)) and len(item) >= 2:
-                label = sanitize_button_label(str(item[0]))
-                url = str(item[1]).strip()
-            else:
-                continue
-            safe_url = sanitize_button_url(url)
-            if label and safe_url:
-                clean_row.append((label, safe_url))
-        if clean_row:
-            rows.append(clean_row)
-    return rows
-
-
-def build_public_link_button_rows(rows_source: list[list[tuple[str, str]]]) -> list[list[InlineKeyboardButton]]:
-    rows: list[list[InlineKeyboardButton]] = []
-    for row in rows_source:
-        btn_row: list[InlineKeyboardButton] = []
-        for label, url in row[:4]:
-            btn = make_url_button(label, url)
-            if btn:
-                btn_row.append(btn)
-        if btn_row:
-            rows.append(btn_row)
-    return rows
-
-
-def _read_public_link_source() -> list[list[tuple[str, str]]]:
-    file_path = PUBLIC_LINK_BUTTONS_FILE
-    if file_path and os.path.exists(file_path):
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            normalized = normalize_public_link_source(data)
-            if normalized:
-                return normalized
-        except Exception as e:
-            logger.warning(f'Failed to read {file_path}, falling back to env/defaults: {e}')
-
-    raw = os.getenv('PUBLIC_LINK_BUTTONS', '').strip()
-    if raw:
-        try:
-            normalized = normalize_public_link_source(json.loads(raw))
-            if normalized:
-                return normalized
-        except Exception as e:
-            logger.warning(f'Invalid PUBLIC_LINK_BUTTONS JSON, using defaults: {e}')
-
-    return normalize_public_link_source(_default_public_link_source())
-
-
-def persist_public_link_source(rows_source: list[list[tuple[str, str]]]) -> bool:
-    try:
-        normalized = normalize_public_link_source(rows_source)
-        serialized = [[{'text': label, 'url': url} for label, url in row] for row in normalized]
-        tmp_path = f'{PUBLIC_LINK_BUTTONS_FILE}.tmp'
-        with open(tmp_path, 'w', encoding='utf-8') as f:
-            json.dump(serialized, f, ensure_ascii=False, indent=2)
-        try:
-            os.chmod(tmp_path, 0o600)
-        except Exception:
-            pass
-        os.replace(tmp_path, PUBLIC_LINK_BUTTONS_FILE)
-        return True
-    except Exception as e:
-        logger.error(f'Failed to persist public link buttons: {e}')
-        return False
-
-
-def refresh_public_link_buttons() -> None:
-    global PUBLIC_LINK_BUTTON_SOURCE, PUBLIC_LINK_BUTTON_ROWS
-    PUBLIC_LINK_BUTTON_SOURCE = _read_public_link_source()
-    PUBLIC_LINK_BUTTON_ROWS = build_public_link_button_rows(PUBLIC_LINK_BUTTON_SOURCE)
-
-
-def get_public_link_entries() -> list[dict[str, Any]]:
-    entries: list[dict[str, Any]] = []
-    for row_idx, row in enumerate(PUBLIC_LINK_BUTTON_SOURCE):
-        for col_idx, (label, url) in enumerate(row):
-            entries.append({
-                'row': row_idx,
-                'col': col_idx,
-                'label': label,
-                'url': url,
-            })
-    return entries
-
-
-def add_public_link_button(label: str, url: str) -> tuple[bool, str]:
-    global PUBLIC_LINK_BUTTON_SOURCE
-    safe_label = sanitize_button_label(label)
-    safe_url = sanitize_button_url(url)
-
-    if not safe_label:
-        return False, 'Button text is empty or invalid.'
-    if not safe_url:
-        return False, 'URL must start with https:// or be a valid Telegram link.'
-
-    entries = get_public_link_entries()
-    if len(entries) >= 24:
-        return False, 'Maximum of 24 public link buttons reached.'
-
-    for item in entries:
-        if item['label'].casefold() == safe_label.casefold() and item['url'] == safe_url:
-            return False, 'That button already exists.'
-
-    PUBLIC_LINK_BUTTON_SOURCE.append([(safe_label, safe_url)])
-    if not persist_public_link_source(PUBLIC_LINK_BUTTON_SOURCE):
-        PUBLIC_LINK_BUTTON_SOURCE.pop()
-        return False, 'Could not save the new button.'
-
-    refresh_public_link_buttons()
-    return True, f'Added button: {safe_label}'
-
-
-def remove_public_link_button(index: int) -> tuple[bool, str]:
-    global PUBLIC_LINK_BUTTON_SOURCE
-    entries = get_public_link_entries()
-    if index < 0 or index >= len(entries):
-        return False, 'Button not found.'
-
-    target = entries[index]
-    row_idx = target['row']
-    col_idx = target['col']
-    removed = PUBLIC_LINK_BUTTON_SOURCE[row_idx].pop(col_idx)
-    if not PUBLIC_LINK_BUTTON_SOURCE[row_idx]:
-        PUBLIC_LINK_BUTTON_SOURCE.pop(row_idx)
-
-    if not persist_public_link_source(PUBLIC_LINK_BUTTON_SOURCE):
-        if row_idx <= len(PUBLIC_LINK_BUTTON_SOURCE):
-            if row_idx == len(PUBLIC_LINK_BUTTON_SOURCE):
-                PUBLIC_LINK_BUTTON_SOURCE.append([removed])
-            else:
-                PUBLIC_LINK_BUTTON_SOURCE[row_idx].insert(col_idx, removed)
-        refresh_public_link_buttons()
-        return False, 'Could not save after removing the button.'
-
-    refresh_public_link_buttons()
-    return True, f'Removed button: {removed[0]}'
-
-
-PUBLIC_LINK_BUTTON_SOURCE = _read_public_link_source()
-PUBLIC_LINK_BUTTON_ROWS = build_public_link_button_rows(PUBLIC_LINK_BUTTON_SOURCE)
+ADMIN_ID = '8170777795'
 
 # Global variable to cache LTC price
 CACHED_LTC_PRICE = 84.0  # Fallback price
@@ -1319,73 +1087,11 @@ async def get_current_ltc_price():
 
 bot = Bot(token=API_TOKEN,
           default=DefaultBotProperties(parse_mode="Markdown"))
-dp = Dispatcher()
+dp = Dispatcher(bot)
 
 from aiogram import types
 
-async def load_startup_data():
-    """Load persisted data from the database into memory before polling starts."""
-    global user_orders, all_users
-
-    if not db:
-        logger.warning("⚠️ Startup restore skipped: database not available")
-        return
-
-    # --- Restore broadcast_users into all_users ---
-    try:
-        users = db.get_broadcast_users()
-        loaded_users = set(str(uid) for uid in users)
-        all_users.update(loaded_users)
-        logger.info(f"✅ Startup restore: loaded {len(loaded_users)} broadcast users into all_users ({len(all_users)} total)")
-    except Exception as e:
-        logger.error(f"❌ Startup restore failed for broadcast_users: {e}")
-
-    # --- Restore user_orders from the orders table ---
-    try:
-        all_orders = db.get_all_orders(limit=10000)
-        orders_loaded = 0
-        for order in all_orders:
-            uid = str(order.get('user_id', ''))
-            order_num = order.get('order_num', 'N/A')
-            created_at = order.get('created_at')
-
-            if not uid:
-                continue
-
-            # Convert created_at timestamp to a date for review-window checks
-            if created_at:
-                if hasattr(created_at, 'date'):
-                    order_date = created_at.date()
-                else:
-                    try:
-                        order_date = datetime.datetime.strptime(str(created_at)[:10], "%Y-%m-%d").date()
-                    except Exception:
-                        order_date = datetime.date.today()
-            else:
-                order_date = datetime.date.today()
-
-            # Only populate if this user doesn't already have a more-recent entry
-            existing = user_orders.get(uid)
-            if existing is None or order_date > existing.get('date', datetime.date.min):
-                user_orders[uid] = {
-                    'order_num': order_num,
-                    'items': [],   # Cart items are not stored in the orders table text blob
-                    'date': order_date
-                }
-                orders_loaded += 1
-
-        logger.info(f"✅ Startup restore: loaded {orders_loaded} order records into user_orders ({len(user_orders)} unique users)")
-    except Exception as e:
-        logger.error(f"❌ Startup restore failed for orders: {e}")
-
-    # --- Log review count from the database ---
-    try:
-        review_count = db.get_review_count()
-        logger.info(f"✅ Startup restore: {review_count} reviews available in database (fetched on-demand)")
-    except Exception as e:
-        logger.error(f"❌ Startup restore failed to count reviews: {e}")
-
-@dp.message(Command("start"))
+@dp.message_handler(commands=['start'])
 async def start_cmd(message: types.Message):
     print("START COMMAND RECEIVED")
     await message.answer("Bot is online")
@@ -1673,6 +1379,59 @@ def restore_to_41_users():
 # restore_to_41_users()
 
 print(f"🛡️ BULLETPROOF SYSTEM LOADED: {len(all_users)} broadcast users ready")
+
+
+def refresh_broadcast_users_cache() -> set[str]:
+    """Reload broadcast users from database/history and keep memory cache in sync."""
+    global all_users
+    try:
+        if db:
+            try:
+                db.restore_all_users_from_history()
+            except Exception as restore_error:
+                logger.error(f"❌ Error restoring users from history: {restore_error}")
+            fresh_users = db.get_broadcast_users()
+            if fresh_users:
+                all_users = set(str(uid) for uid in fresh_users)
+        return all_users
+    except Exception as e:
+        logger.error(f"❌ Error refreshing broadcast users cache: {e}")
+        return all_users
+
+
+def get_broadcast_recipients() -> list[int]:
+    """Return clean integer user ids for broadcast sending."""
+    recipients = []
+    for user_id in refresh_broadcast_users_cache():
+        try:
+            user_id_int = int(user_id)
+            if user_id_int > 0 and str(user_id_int) != ADMIN_ID:
+                recipients.append(user_id_int)
+        except (TypeError, ValueError):
+            logger.warning(f"⚠️ Skipping invalid broadcast user id: {user_id}")
+    return recipients
+
+
+def get_total_broadcast_users_count() -> int:
+    """Get the most accurate broadcast user count available."""
+    try:
+        if db:
+            count = db.get_broadcast_user_count()
+            if isinstance(count, int) and count >= 0:
+                return count
+    except Exception as e:
+        logger.error(f"❌ Error getting broadcast user count: {e}")
+    return len(refresh_broadcast_users_cache())
+
+
+def count_products_in_menu_data(menu_data: dict) -> int:
+    """Count products safely from db.get_dynamic_menu() response."""
+    if not isinstance(menu_data, dict):
+        return 0
+    menu = menu_data.get('menu', menu_data)
+    if not isinstance(menu, dict):
+        return 0
+    return sum(len(products_in_category) for products_in_category in menu.values() if isinstance(products_in_category, dict))
 
 async def sync_users_periodically():
     """BULLETPROOF: Periodically sync and restore users - ONLY GOES UP, NEVER DOWN"""
@@ -2061,7 +1820,6 @@ class OrderStates(StatesGroup):
     admin_deleting_order = State()
     admin_blocking_user = State()
     admin_unblocking_user = State()
-    admin_adding_public_link = State()
     
 class ReviewStates(StatesGroup):
     viewing_reviews = State()
@@ -2072,8 +1830,20 @@ class ReviewStates(StatesGroup):
 
 def main_kb():
     kb = InlineKeyboardMarkup(inline_keyboard=[])
-    for row in PUBLIC_LINK_BUTTON_ROWS:
-        kb.inline_keyboard.append(row)
+    # Add contact button at the top
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="📞 Contact Me",
+                             url="https://t.me/ogukdankzz")
+    ])
+    # Add group chat buttons
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="Main gc", url="https://t.me/+BVxAm2gq7Ek2YWM0"),
+        InlineKeyboardButton(text="Visual gc", url="https://t.me/+aLPTCkZhDH1iZTBk")
+    ])
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="Back up gc", url="https://t.me/+XZwZqNXUuuc1NTk0")
+    ])
+    # Add FIRST TIME FREEBIE button at the top
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="🎁 FIRST TIME FREEBIE 🎁", callback_data='first_time_freebie')
     ])
@@ -2093,8 +1863,20 @@ def main_kb():
 
 def shopping_kb():
     kb = InlineKeyboardMarkup(inline_keyboard=[])
-    for row in PUBLIC_LINK_BUTTON_ROWS:
-        kb.inline_keyboard.append(row)
+    # Add contact button at the top
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="📞 Contact Me",
+                             url="https://t.me/ogukdankzz")
+    ])
+    # Add group chat buttons
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="Main gc", url="https://t.me/+BVxAm2gq7Ek2YWM0"),
+        InlineKeyboardButton(text="Visual gc", url="https://t.me/+aLPTCkZhDH1iZTBk")
+    ])
+    kb.inline_keyboard.append([
+        InlineKeyboardButton(text="Back up gc", url="https://t.me/+XZwZqNXUuuc1NTk0")
+    ])
+    # Add FIRST TIME FREEBIE button at the top
     kb.inline_keyboard.append([
         InlineKeyboardButton(text="🎁 FIRST TIME FREEBIE 🎁", callback_data='first_time_freebie')
     ])
@@ -2433,162 +2215,6 @@ async def start(message: types.Message, state: FSMContext):
                          reply_markup=shopping_kb(),
                          parse_mode="Markdown")
 
-def build_admin_panel_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📋 View Pending Orders", callback_data="admin_pending_orders")],
-        [InlineKeyboardButton(text="✅ View Confirmed Orders", callback_data="admin_confirmed_orders")],
-        [InlineKeyboardButton(text="🔍 Search Order", callback_data="admin_search_order")],
-        [InlineKeyboardButton(text="👤 Customer Lookup", callback_data="admin_customer_lookup")],
-        [InlineKeyboardButton(text="🍽️ Manage Menu", callback_data="admin_menu")],
-        [InlineKeyboardButton(text="💰 Manage Discounts", callback_data="admin_discounts")],
-        [InlineKeyboardButton(text="🔗 Manage Public Links", callback_data="admin_public_links")],
-        [InlineKeyboardButton(text="📢 Broadcast Message", callback_data="admin_broadcast")],
-        [InlineKeyboardButton(text="👥 View All Users", callback_data="admin_view_users")],
-        [InlineKeyboardButton(text="🚫 Blocked Users", callback_data="admin_blocked_users")],
-        [InlineKeyboardButton(text="📊 User Stats", callback_data="admin_stats")],
-        [InlineKeyboardButton(text="🏠 Back to Main", callback_data="main")],
-    ])
-
-
-def build_admin_panel_text(total_orders: int, pending_orders: int, total_users: int) -> str:
-    admin_text = "🔧 *Admin Panel*\n\n"
-    admin_text += f"📊 Quick Stats:\n"
-    admin_text += f"📦 Total Orders: {total_orders}\n"
-    admin_text += f"⏳ Pending: {pending_orders}\n"
-    admin_text += f"👥 Total Users: {total_users}\n"
-    admin_text += f"🛡️ Admins: {', '.join(sorted(ADMIN_IDS))}\n\n"
-    admin_text += "Select an option:"
-    return admin_text
-
-
-def build_public_link_admin_text() -> str:
-    entries = get_public_link_entries()
-    lines = ["🔗 *Manage Public Link Buttons*", "", "These buttons appear on the main menu."]
-    if entries:
-        lines.append("")
-        for idx, item in enumerate(entries, start=1):
-            lines.append(f"{idx}. *{item['label']}*\n   `{item['url']}`")
-    else:
-        lines.append("")
-        lines.append("No public link buttons are configured.")
-    lines.append("")
-    lines.append("Use *Add Link* then send: `Button Name | https://example.com`")
-    return "\n".join(lines)
-
-
-def build_public_link_admin_keyboard() -> InlineKeyboardMarkup:
-    rows: list[list[InlineKeyboardButton]] = [
-        [InlineKeyboardButton(text="➕ Add Link", callback_data="admin_public_links_add")],
-    ]
-    entries = get_public_link_entries()
-    for idx, item in enumerate(entries[:20]):
-        label = item['label']
-        button_text = f"🗑 Remove {label}"
-        rows.append([InlineKeyboardButton(text=button_text[:64], callback_data=f"admin_public_link_del_{idx}")])
-    rows.append([
-        InlineKeyboardButton(text="🔄 Refresh", callback_data="admin_public_links"),
-        InlineKeyboardButton(text="⬅️ Back", callback_data="admin_panel"),
-    ])
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-@dp.callback_query(F.data == "admin_public_links")
-async def admin_public_links(cb: types.CallbackQuery, state: FSMContext):
-    await cb.answer()
-    track_user(cb.from_user)
-
-    if not is_admin(cb.from_user.id):
-        await cb.answer("❌ Access denied.", show_alert=True)
-        return
-
-    refresh_public_link_buttons()
-    await state.clear()
-
-    text = build_public_link_admin_text()
-    markup = build_public_link_admin_keyboard()
-    try:
-        if cb.message and hasattr(cb.message, 'edit_text') and not isinstance(cb.message, types.InaccessibleMessage):
-            await cb.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
-        else:
-            await bot.send_message(cb.from_user.id, text, reply_markup=markup, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error opening public link manager: {e}")
-
-
-@dp.callback_query(F.data == "admin_public_links_add")
-async def admin_public_links_add(cb: types.CallbackQuery, state: FSMContext):
-    await cb.answer()
-    if not is_admin(cb.from_user.id):
-        await cb.answer("❌ Access denied.", show_alert=True)
-        return
-
-    await state.set_state(OrderStates.admin_adding_public_link)
-    await cb.message.answer(
-        "➕ *Add Public Link Button*\n\n"
-        "Send the new button in this format:\n"
-        "`Button Name | https://t.me/yourlink`\n\n"
-        "Examples:\n"
-        "`Support Chat | https://t.me/example`\n"
-        "`Website | https://example.com`",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="❌ Cancel", callback_data="admin_public_links")]])
-    )
-
-
-@dp.message(OrderStates.admin_adding_public_link)
-async def admin_public_links_add_process(message: types.Message, state: FSMContext):
-    track_user(message.from_user)
-    if not is_admin(message.from_user.id):
-        await message.answer("❌ Access denied.")
-        await state.clear()
-        return
-
-    raw = (message.text or '').strip()
-    if '|' not in raw:
-        await message.answer("❌ Invalid format. Send it as: `Button Name | https://example.com`", parse_mode="Markdown")
-        return
-
-    label, url = [part.strip() for part in raw.split('|', 1)]
-    success, info = add_public_link_button(label, url)
-    if not success:
-        await message.answer(f"❌ {info}")
-        return
-
-    await state.clear()
-    await message.answer(f"✅ {info}", reply_markup=build_public_link_admin_keyboard())
-    await message.answer(build_public_link_admin_text(), parse_mode="Markdown", reply_markup=build_public_link_admin_keyboard())
-
-
-@dp.callback_query(F.data.startswith("admin_public_link_del_"))
-async def admin_public_links_delete(cb: types.CallbackQuery, state: FSMContext):
-    await cb.answer()
-    if not is_admin(cb.from_user.id):
-        await cb.answer("❌ Access denied.", show_alert=True)
-        return
-
-    try:
-        index = int(cb.data.rsplit('_', 1)[1])
-    except Exception:
-        await cb.answer("❌ Invalid button selection.", show_alert=True)
-        return
-
-    success, info = remove_public_link_button(index)
-    if not success:
-        await cb.answer(f"❌ {info}", show_alert=True)
-        return
-
-    await cb.answer(info, show_alert=True)
-    text = build_public_link_admin_text()
-    markup = build_public_link_admin_keyboard()
-    try:
-        if cb.message and hasattr(cb.message, 'edit_text') and not isinstance(cb.message, types.InaccessibleMessage):
-            await cb.message.edit_text(text, reply_markup=markup, parse_mode="Markdown")
-        else:
-            await bot.send_message(cb.from_user.id, text, reply_markup=markup, parse_mode="Markdown")
-    except Exception as e:
-        logger.error(f"Error refreshing public link manager after delete: {e}")
-
-
 @dp.message(Command("admin"))
 @uncrashable
 async def admin_panel(message: types.Message, state: FSMContext):
@@ -2597,14 +2223,14 @@ async def admin_panel(message: types.Message, state: FSMContext):
         logger.warning("❌ Admin command received with invalid user data")
         return
         
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
     # Get quick stats for admin panel
     total_orders = 0
     pending_orders = 0
-    total_users = len(all_users)
+    total_users = get_total_broadcast_users_count()
     
     if db:
         try:
@@ -2640,8 +2266,7 @@ async def admin_panel(message: types.Message, state: FSMContext):
     admin_text += f"📊 Quick Stats:\n"
     admin_text += f"📦 Total Orders: {total_orders}\n"
     admin_text += f"⏳ Pending: {pending_orders}\n"
-    admin_text += f"👥 Total Users: {total_users}\n"
-    admin_text += f"🛡️ Admins: {', '.join(sorted(ADMIN_IDS))}\n\n"
+    admin_text += f"👥 Total Users: {total_users}\n\n"
     admin_text += "Select an option:"
     
     await message.answer(admin_text, 
@@ -2652,7 +2277,7 @@ async def admin_search_order_start(cb: types.CallbackQuery, state: FSMContext):
     """Start order search process"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -2668,7 +2293,7 @@ async def admin_search_order_start(cb: types.CallbackQuery, state: FSMContext):
 async def admin_search_order_process(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process order search"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -2732,7 +2357,7 @@ async def admin_customer_lookup_start(cb: types.CallbackQuery, state: FSMContext
     """Start customer lookup process"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -2748,7 +2373,7 @@ async def admin_customer_lookup_start(cb: types.CallbackQuery, state: FSMContext
 async def admin_customer_lookup_process(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process customer lookup"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -2831,7 +2456,7 @@ async def delete_order_confirm(cb: types.CallbackQuery, state: FSMContext):
     """Confirm order deletion"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -2853,7 +2478,7 @@ async def confirm_delete_order(cb: types.CallbackQuery, state: FSMContext):
     """Actually delete the order"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -2874,7 +2499,7 @@ async def block_user_confirm(cb: types.CallbackQuery, state: FSMContext):
     """Confirm user blocking"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -2898,13 +2523,13 @@ async def confirm_block_user(cb: types.CallbackQuery, state: FSMContext):
     """Actually block the user"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
     user_id = int(cb.data.split("_")[2])
     
-    if db and db.block_user(user_id, blocked_by=PRIMARY_ADMIN_ID, reason="Blocked by admin"):
+    if db and db.block_user(user_id, blocked_by=ADMIN_ID, reason="Blocked by admin"):
         await cb.answer(f"✅ User {user_id} blocked!", show_alert=True)
         await cb.message.edit_text(
             f"✅ *User {user_id} Blocked*\n\n"
@@ -3088,7 +2713,7 @@ async def view_pending_orders(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -3144,7 +2769,7 @@ async def view_confirmed_orders(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -3236,7 +2861,7 @@ async def view_order_details(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -3299,7 +2924,7 @@ async def confirm_customer_order(cb: types.CallbackQuery, state: FSMContext):
         logger.warning("❌ Confirm order callback received with invalid user data")
         return
         
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         return
     
     # Safe order number extraction with null protection
@@ -3346,12 +2971,13 @@ async def admin_broadcast_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
     text = "📢 *Broadcast Message*\n\n"
-    text += f"👥 Total users: {len(all_users)}\n\n"
+    total_users = get_total_broadcast_users_count()
+    text += f"👥 Total users: {total_users}\n\n"
     text += "✍️ Type your message to send to all users:"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -3382,7 +3008,7 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
         logger.warning("❌ Broadcast command received with invalid user data")
         return
         
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -3404,19 +3030,20 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
     # Send broadcast
     success_count = 0
     failed_users = []  # Track failed users with their info
+    recipients = get_broadcast_recipients()
+    total_recipients = len(recipients)
     
-    status_message = await message.answer("📢 Broadcasting message... 0/0")
+    status_message = await message.answer(f"📢 Broadcasting message... 0/{total_recipients}")
     
-    for i, user_id in enumerate(all_users, 1):
+    for i, user_id in enumerate(recipients, 1):
         try:
-            if not is_admin(user_id):  # Don't send to admin
-                await bot.send_message(user_id, f"📢 *Message from UKDANKZZ*\n\n{broadcast_text}", parse_mode="Markdown")
-                success_count += 1
+            await bot.send_message(user_id, f"📢 *Message from UKDANKZZ*\n\n{broadcast_text}", parse_mode="Markdown")
+            success_count += 1
             
             # Update status every 10 users
-            if i % 10 == 0 or i == len(all_users):
+            if i % 10 == 0 or i == total_recipients:
                 try:
-                    await status_message.edit_text(f"📢 Broadcasting... {i}/{len(all_users)}")
+                    await status_message.edit_text(f"📢 Broadcasting... {i}/{total_recipients}")
                 except:
                     pass
                     
@@ -3442,7 +3069,7 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
     # Build final result message
     result_text = f"✅ *Broadcast Complete*\n\n"
     result_text += f"📤 Sent: {success_count}\n"
-    result_text += f"👥 Total users: {len(all_users)}\n"
+    result_text += f"👥 Total users: {total_recipients}\n"
     
     # Show failed users if any
     if failed_users:
@@ -3466,7 +3093,7 @@ async def admin_broadcast_send(message: types.Message, state: FSMContext):
 async def add_category_process(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process category creation"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -3495,7 +3122,7 @@ async def add_category_process(message: types.Message, state: FSMContext):
     # Show menu management panel again
     categories = db.get_categories() if db else []
     menu_data = db.get_dynamic_menu() if db else {}
-    total_products = sum(len(prods) for prods in menu_data.values())
+    total_products = count_products_in_menu_data(menu_data)
     
     text = "🍽️ *Menu Management*\n\n"
     text += f"📊 **Current Menu:**\n"
@@ -3518,7 +3145,7 @@ async def admin_view_users(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -3532,6 +3159,7 @@ async def admin_view_users(cb: types.CallbackQuery, state: FSMContext):
     
     # Get all users from database
     if db:
+        refresh_broadcast_users_cache()
         users = db.get_all_broadcast_users()
     else:
         users = []
@@ -3598,12 +3226,12 @@ async def admin_stats(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
     # Calculate stats
-    memory_users = len(all_users)
+    memory_users = len(refresh_broadcast_users_cache())
     db_users = len(db.get_broadcast_users()) if db else 0
     total_orders = db.get_total_orders_count() if db else 106  # Use database count starting from 106
     total_reviews = db.get_review_count() if db else 0
@@ -3673,7 +3301,7 @@ async def force_sync_users(cb: types.CallbackQuery, state: FSMContext):
     """Force sync all memory users to database - RESCUE MISSING USERS"""
     await cb.answer()  # Instant response
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -3742,7 +3370,7 @@ async def export_orders(cb: types.CallbackQuery, state: FSMContext):
     """Export orders to CSV format"""
     await cb.answer("📥 Generating export...")
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -3826,7 +3454,7 @@ async def admin_blocked_users(cb: types.CallbackQuery, state: FSMContext):
     """View and manage blocked users"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -3876,7 +3504,7 @@ async def unblock_user_action(cb: types.CallbackQuery, state: FSMContext):
     """Unblock a user"""
     await cb.answer()
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -3894,14 +3522,14 @@ async def back_to_admin_panel(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
     # Get quick stats for admin panel
     total_orders = 0
     pending_orders = 0
-    total_users = len(all_users)
+    total_users = get_total_broadcast_users_count()
     
     if db:
         try:
@@ -3975,7 +3603,7 @@ async def admin_menu_management(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -4031,7 +3659,7 @@ async def admin_menu_management(cb: types.CallbackQuery, state: FSMContext):
 async def add_category_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4060,7 +3688,7 @@ async def add_category_start(cb: types.CallbackQuery, state: FSMContext):
 async def delete_category_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4105,7 +3733,7 @@ async def delete_category_start(cb: types.CallbackQuery, state: FSMContext):
 async def delete_category_confirm(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4263,7 +3891,7 @@ async def claim_freebie(cb: types.CallbackQuery, state: FSMContext):
 async def view_dynamic_menu(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4312,7 +3940,7 @@ async def view_dynamic_menu(cb: types.CallbackQuery, state: FSMContext):
 async def reload_menu(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4333,7 +3961,7 @@ async def admin_price_chart(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4403,7 +4031,7 @@ async def admin_download_menu(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer("📥 Generating menu file...")
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4492,7 +4120,7 @@ async def admin_download_menu(cb: types.CallbackQuery, state: FSMContext):
 async def add_product_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4541,7 +4169,7 @@ async def add_product_start(cb: types.CallbackQuery, state: FSMContext):
 async def select_category_for_product(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4596,7 +4224,7 @@ async def select_category_for_product(cb: types.CallbackQuery, state: FSMContext
 async def add_product_name(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process product name and ask for pricing"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -4635,7 +4263,7 @@ async def add_product_name(message: types.Message, state: FSMContext):
 async def add_product_pricing(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process pricing and create/update the product"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -4749,7 +4377,7 @@ async def add_product_pricing(message: types.Message, state: FSMContext):
     # Show menu management panel again
     categories = db.get_categories() if db else []
     menu_data = db.get_dynamic_menu() if db else {}
-    total_products = sum(len(prods) for prods in menu_data.values())
+    total_products = count_products_in_menu_data(menu_data)
     
     text = "🍽️ *Menu Management*\n\n"
     text += f"📊 **Current Menu:**\n"
@@ -4772,7 +4400,7 @@ async def add_product_pricing(message: types.Message, state: FSMContext):
 async def save_product_name(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process new product name"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -4816,7 +4444,7 @@ async def save_product_name(message: types.Message, state: FSMContext):
 async def save_product_description(message: types.Message, state: FSMContext):
     track_user(message.from_user)
     """Process new product description"""
-    if not is_admin(message.from_user.id):
+    if str(message.from_user.id) != ADMIN_ID:
         await message.answer("❌ Access denied.")
         return
     
@@ -4859,7 +4487,7 @@ async def save_product_description(message: types.Message, state: FSMContext):
 async def edit_product_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4912,7 +4540,7 @@ async def edit_product_start(cb: types.CallbackQuery, state: FSMContext):
 async def edit_product_select(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -4980,7 +4608,7 @@ async def edit_product_select(cb: types.CallbackQuery, state: FSMContext):
 async def edit_product_name(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5023,7 +4651,7 @@ async def edit_product_name(cb: types.CallbackQuery, state: FSMContext):
 async def edit_product_description(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5070,7 +4698,7 @@ async def edit_product_description(cb: types.CallbackQuery, state: FSMContext):
 async def edit_product_pricing(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5134,7 +4762,7 @@ async def edit_product_pricing(cb: types.CallbackQuery, state: FSMContext):
 async def remove_product_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5181,7 +4809,7 @@ async def remove_product_start(cb: types.CallbackQuery, state: FSMContext):
 async def confirm_remove_product(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5218,7 +4846,7 @@ async def confirm_remove_product(cb: types.CallbackQuery, state: FSMContext):
 async def toggle_product_start(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5265,7 +4893,7 @@ async def toggle_product_start(cb: types.CallbackQuery, state: FSMContext):
 async def confirm_toggle_product(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5570,7 +5198,7 @@ async def admin_discount_management(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.message.answer("❌ Access denied.")
         return
     
@@ -5625,7 +5253,7 @@ async def admin_discount_management(cb: types.CallbackQuery, state: FSMContext):
 async def create_flash_sale(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5698,7 +5326,7 @@ async def create_flash_sale(cb: types.CallbackQuery, state: FSMContext):
 async def activate_flash_sale(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5770,7 +5398,7 @@ async def activate_flash_sale(cb: types.CallbackQuery, state: FSMContext):
 async def create_promotion_handler(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5844,7 +5472,7 @@ async def create_promotion_handler(cb: types.CallbackQuery, state: FSMContext):
 async def create_standard_promotion(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -5921,7 +5549,7 @@ async def create_standard_promotion(cb: types.CallbackQuery, state: FSMContext):
 async def create_coupon_quick(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -6016,7 +5644,7 @@ async def create_coupon_quick(cb: types.CallbackQuery, state: FSMContext):
 async def generate_coupon(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -6096,7 +5724,7 @@ async def generate_coupon(cb: types.CallbackQuery, state: FSMContext):
 async def view_all_promotions(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -6217,7 +5845,7 @@ async def view_all_promotions(cb: types.CallbackQuery, state: FSMContext):
 async def end_promotion(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -6246,7 +5874,7 @@ async def end_promotion(cb: types.CallbackQuery, state: FSMContext):
 async def reactivate_promotion(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    if not is_admin(cb.from_user.id):
+    if str(cb.from_user.id) != ADMIN_ID:
         await cb.answer("❌ Access denied.", show_alert=True)
         return
     
@@ -7379,7 +7007,7 @@ async def show_product_reviews(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
     product_name = cb.data[13:]  # Remove 'show_reviews_' prefix
-    is_admin = is_admin(cb.from_user.id)
+    is_admin = str(cb.from_user.id) == ADMIN_ID
     
     # Use efficient database query to get product-specific reviews
     product_specific_reviews = db.get_reviews_for_product(product_name, limit=5) if db else []
@@ -7792,7 +7420,7 @@ async def start_order_review(cb: types.CallbackQuery, state: FSMContext):
 async def show_all_customer_reviews(cb: types.CallbackQuery, state: FSMContext):
     await cb.answer()
     track_user(cb.from_user)
-    is_admin = is_admin(cb.from_user.id)
+    is_admin = str(cb.from_user.id) == ADMIN_ID
     
     # Parse page number from callback data (format: show_all_customer_reviews or show_all_customer_reviews_page_2)
     page = 0
@@ -8064,9 +7692,9 @@ async def main():
                 # Fallback to old format
                 repl_owner = os.getenv('REPL_OWNER', 'unknown')
                 repl_slug = os.getenv('REPL_SLUG', 'workspace')
-                webhook_url = f"https://{repl_slug}.{repl_owner}.repl.co/telegram/{WEBHOOK_SECRET}"
+                webhook_url = f"https://{repl_slug}.{repl_owner}.repl.co/telegram/{API_TOKEN}"
             else:
-                webhook_url = f"https://{replit_domain}/telegram/{WEBHOOK_SECRET}"
+                webhook_url = f"https://{replit_domain}/telegram/{API_TOKEN}"
             
             print(f"📡 Webhook URL: {webhook_url}")
             
@@ -8149,11 +7777,6 @@ async def main():
                 
                 # START POLLING - SINGLE ATTEMPT ONLY (no retry loop to prevent duplicate polling)
                 try:
-                    # Load persisted data from database before polling starts
-                    print("📦 Loading startup data from database...")
-                    await load_startup_data()
-                    print("✅ Startup data loaded successfully")
-
                     print("🚀 Starting polling (single clean attempt)...")
                     await dp.start_polling(
                         bot, 
