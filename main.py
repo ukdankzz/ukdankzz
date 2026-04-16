@@ -1089,9 +1089,9 @@ bot = Bot(token=API_TOKEN,
           default=DefaultBotProperties(parse_mode="Markdown"))
 dp = Dispatcher(bot)
 
-from aiogram import types
+dp = Dispatcher()
 
-@dp.message_handler(commands=['start'])
+@dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     print("START COMMAND RECEIVED")
     await message.answer("Bot is online")
