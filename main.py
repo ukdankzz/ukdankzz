@@ -1323,6 +1323,60 @@ dp = Dispatcher()
 
 from aiogram import types
 
+@dp.startup()
+async def on_startup():
+    """Reload in-memory data from the database on bot startup to survive crashes/restarts."""
+    global user_orders
+
+    if not db:
+        logger.warning("⚠️ Startup restore skipped: database not available")
+        return
+
+    # --- Restore user_orders from the orders table ---
+    try:
+        all_orders = db.get_all_orders(limit=10000)
+        orders_loaded = 0
+        for order in all_orders:
+            uid = str(order.get('user_id', ''))
+            order_num = order.get('order_num', 'N/A')
+            created_at = order.get('created_at')
+
+            if not uid:
+                continue
+
+            # Convert created_at timestamp to a date for review-window checks
+            if created_at:
+                if hasattr(created_at, 'date'):
+                    order_date = created_at.date()
+                else:
+                    try:
+                        order_date = datetime.datetime.strptime(str(created_at)[:10], "%Y-%m-%d").date()
+                    except Exception:
+                        order_date = datetime.date.today()
+            else:
+                order_date = datetime.date.today()
+
+            # Only populate if this user doesn't already have a more-recent entry
+            existing = user_orders.get(uid)
+            if existing is None or order_date > existing.get('date', datetime.date.min):
+                user_orders[uid] = {
+                    'order_num': order_num,
+                    'items': [],   # Cart items are not stored in the orders table text blob
+                    'date': order_date
+                }
+                orders_loaded += 1
+
+        logger.info(f"✅ Startup restore: loaded {orders_loaded} order records into user_orders ({len(user_orders)} unique users)")
+    except Exception as e:
+        logger.error(f"❌ Startup restore failed for orders: {e}")
+
+    # --- Log review count from the database ---
+    try:
+        review_count = db.get_review_count()
+        logger.info(f"✅ Startup restore: {review_count} reviews available in database (fetched on-demand)")
+    except Exception as e:
+        logger.error(f"❌ Startup restore failed to count reviews: {e}")
+
 @dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     print("START COMMAND RECEIVED")
