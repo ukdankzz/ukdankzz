@@ -1,5 +1,4 @@
-        first_order = orders[0]
-        display_userimport sys
+import sys
 import os
 
 # CRITICAL: Only allow startup via start_bot.sh which sets BOT_START_AUTHORIZED=1
