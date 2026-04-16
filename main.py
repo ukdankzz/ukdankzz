@@ -1,4 +1,5 @@
-import sys
+        first_order = orders[0]
+        display_userimport sys
 import os
 
 # CRITICAL: Only allow startup via start_bot.sh which sets BOT_START_AUTHORIZED=1
@@ -2231,11 +2232,13 @@ async def admin_panel(message: types.Message, state: FSMContext):
     total_orders = 0
     pending_orders = 0
     total_users = get_total_broadcast_users_count()
+    total_reviews = 0
     
     if db:
         try:
             total_orders = db.get_total_orders_count()
             pending_orders = len(db.get_pending_orders())
+            total_reviews = db.get_review_count()
         except Exception as e:
             logger.error(f"Error fetching admin stats: {e}")
     
@@ -2417,8 +2420,7 @@ async def admin_customer_lookup_process(message: types.Message, state: FSMContex
         total_spent = sum(o.get('total_price', 0) for o in orders)
         confirmed_orders = [o for o in orders if o.get('status') == 'confirmed']
         
-        first_order = orders[0]
-        display_user_id = first_order.get('user_id', 'N/A')
+_id = first_order.get('user_id', 'N/A')
         display_username = first_order.get('username', 'N/A')
         
         text = f"👤 *Customer Profile*\n\n"
@@ -3530,11 +3532,13 @@ async def back_to_admin_panel(cb: types.CallbackQuery, state: FSMContext):
     total_orders = 0
     pending_orders = 0
     total_users = get_total_broadcast_users_count()
+    total_reviews = 0
     
     if db:
         try:
             total_orders = db.get_total_orders_count()
             pending_orders = len(db.get_pending_orders())
+            total_reviews = db.get_review_count()
         except Exception as e:
             logger.error(f"Error fetching admin stats: {e}")
     
