@@ -735,9 +735,9 @@ def diagnostics_dashboard():
                     </div>`;
 
                 document.getElementById('uptime').textContent = `${data.system_status.uptime_hours}h`;
-document.getElementById('users').textContent = data.system_status.total_broadcast_users || '0';                document.getElementById('restarts').textContent = data.system_status.restart_count;
-                document.getElementById('crashes').textContent = data.system_status.recent_crashes;
-
+document.getElementById('users').textContent = data.system_status.total_broadcast_users || '0';
+document.getElementById('restarts').textContent = data.system_status.restart_count;
+document.getElementById('crashes').textContent = data.system_status.recent_crashes;
                 const errorsList = document.getElementById('errors-list');
                 if (data.errors && data.errors.length > 0) {
                     errorsList.innerHTML = data.errors.map(error => `
