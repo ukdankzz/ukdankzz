@@ -201,7 +201,7 @@ class UncrashableSystem:
         except Exception as e:
             logger.error(f"Failed to backup data for user {user_id}: {e}")
             
-    def get_system_status(self) -> Dict[str, Any]:
+   def get_system_status(self) -> Dict[str, Any]:
     """Get comprehensive system status"""
     current_time = time.time()
     return {
@@ -213,6 +213,7 @@ class UncrashableSystem:
         'total_broadcast_users': len(db.get_broadcast_users()) if 'db' in globals() and db else 0,
         'memory_readings': len(self.memory_usage_history),
         'is_healthy': current_time - self.last_heartbeat < 60
+    }
     }
         
 
