@@ -202,18 +202,19 @@ class UncrashableSystem:
             logger.error(f"Failed to backup data for user {user_id}: {e}")
             
     def get_system_status(self) -> Dict[str, Any]:
-        """Get comprehensive system status"""
-        current_time = time.time()
-        return {
-            'uptime': current_time - self.process_start_time,
-            'restart_count': self.restart_count,
-            'crash_count': len(self.crash_times),
-            'recent_crashes': len([t for t in self.crash_times if current_time - t < 3600]),
-            'last_heartbeat': current_time - self.last_heartbeat,
-            'backed_up_users': len(self.backup_data),
-            'memory_readings': len(self.memory_usage_history),
-            'is_healthy': current_time - self.last_heartbeat < 60
-        }
+    """Get comprehensive system status"""
+    current_time = time.time()
+    return {
+        'uptime': current_time - self.process_start_time,
+        'restart_count': self.restart_count,
+        'crash_count': len(self.crash_times),
+        'recent_crashes': len([t for t in self.crash_times if current_time - t < 3600]),
+        'last_heartbeat': current_time - self.last_heartbeat,
+        'total_broadcast_users': len(db.get_broadcast_users()) if 'db' in globals() and db else 0,
+        'memory_readings': len(self.memory_usage_history),
+        'is_healthy': current_time - self.last_heartbeat < 60
+    }
+        
 
 # Global uncrashable system instance
 crash_system = UncrashableSystem()
