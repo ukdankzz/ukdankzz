@@ -1085,9 +1085,10 @@ async def get_current_ltc_price():
     print(f"⚠️ Using cached/fallback LTC price: £{CACHED_LTC_PRICE:.2f}")
     return CACHED_LTC_PRICE
 
-bot = Bot(token=API_TOKEN,
-          default=DefaultBotProperties(parse_mode="Markdown"))
-dp = Dispatcher(bot)
+bot = Bot(
+    token=API_TOKEN,
+    default=DefaultBotProperties(parse_mode="Markdown")
+)
 
 dp = Dispatcher()
 
