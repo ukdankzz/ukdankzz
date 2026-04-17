@@ -187,35 +187,36 @@ class UncrashableSystem:
     def backup_user_data(self, user_id: str, data: dict):
         """Enhanced user data backup with compression"""
         try:
-            # Limit backup size to prevent memory issues
+               # Limit backup size to prevent memory issues
             if len(self.backup_data) > 1000:
                 # Remove oldest backup
-                oldest_key = min(self.backup_data.keys(), 
-                               key=lambda k: self.backup_data[k].get('timestamp', 0))
+                oldest_key = min(
+                    self.backup_data.keys(),
+                    key=lambda k: self.backup_data[k].get('timestamp', 0)
+                )
                 del self.backup_data[oldest_key]
-            
+
             self.backup_data[user_id] = {
                 'data': data,
                 'timestamp': time.time()
             }
         except Exception as e:
             logger.error(f"Failed to backup data for user {user_id}: {e}")
-            
-   def get_system_status(self) -> Dict[str, Any]:
-    """Get comprehensive system status"""
-    current_time = time.time()
-    return {
-        'uptime': current_time - self.process_start_time,
-        'restart_count': self.restart_count,
-        'crash_count': len(self.crash_times),
-        'recent_crashes': len([t for t in self.crash_times if current_time - t < 3600]),
-        'last_heartbeat': current_time - self.last_heartbeat,
-        'total_broadcast_users': len(db.get_broadcast_users()) if 'db' in globals() and db else 0,
-        'memory_readings': len(self.memory_usage_history),
-        'is_healthy': current_time - self.last_heartbeat < 60
-    }
-    }
-        
+
+    def get_system_status(self) -> Dict[str, Any]:
+        """Get comprehensive system status"""
+        current_time = time.time()
+        return {
+            'uptime': current_time - self.process_start_time,
+            'restart_count': self.restart_count,
+            'crash_count': len(self.crash_times),
+            'recent_crashes': len([t for t in self.crash_times if current_time - t < 3600]),
+            'last_heartbeat': current_time - self.last_heartbeat,
+            'total_broadcast_users': len(db.get_broadcast_users()) if 'db' in globals() and db else 0,
+            'memory_readings': len(self.memory_usage_history),
+            'is_healthy': current_time - self.last_heartbeat < 60
+        }
+
 
 # Global uncrashable system instance
 crash_system = UncrashableSystem()
@@ -229,6 +230,7 @@ except ImportError as e:
     logger.warning(f"⚠️ Backup system not available: {e}")
     BACKUP_AVAILABLE = False
 
+
 # Health monitoring system
 class HealthMonitor:
     def __init__(self):
@@ -237,21 +239,21 @@ class HealthMonitor:
         self.error_count = 0
         self.last_error_time = 0
         self.uptime_start = time.time()
-        
+
     def heartbeat(self):
         """Update heartbeat timestamp"""
         self.last_heartbeat = time.time()
-        
+
     def log_connection(self):
         """Log successful connection"""
         self.connection_count += 1
         logger.info(f"🔗 Connection #{self.connection_count} established")
-        
+
     def log_error(self):
         """Log error occurrence"""
         self.error_count += 1
         self.last_error_time = time.time()
-        
+
     def get_status(self) -> Dict[str, Any]:
         """Get current health status"""
         current_time = time.time()
