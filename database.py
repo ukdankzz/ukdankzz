@@ -279,6 +279,21 @@ class DatabaseManager:
                         )
                     """)
                     
+                    # Create product variations table for storing product variants
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS product_variations (
+                            id SERIAL PRIMARY KEY,
+                            product_id INTEGER REFERENCES menu_products(id) ON DELETE CASCADE,
+                            variation_name VARCHAR(100) NOT NULL,
+                            variation_value VARCHAR(100) NOT NULL,
+                            price NUMERIC(10,2) NOT NULL,
+                            display_order INTEGER DEFAULT 0,
+                            active BOOLEAN DEFAULT TRUE,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            UNIQUE(product_id, variation_name, variation_value)
+                        )
+                    """)
+                    
                     # Create first-time freebie tracking table
                     cursor.execute("""
                         CREATE TABLE IF NOT EXISTS freebie_claims (
@@ -335,6 +350,9 @@ class DatabaseManager:
                     """)
                     cursor.execute("""
                         CREATE INDEX IF NOT EXISTS idx_freebie_claims_user ON freebie_claims(user_id);
+                    """)
+                    cursor.execute("""
+                        CREATE INDEX IF NOT EXISTS idx_product_variations_product ON product_variations(product_id, active);
                     """)
                     
                     conn.commit()
@@ -2211,6 +2229,79 @@ class DatabaseManager:
                 except:
                     pass
     
+    def bulk_add_products(self, category_id: int, products_data: list) -> dict:
+        """Bulk add multiple products with their pricing tiers in a single transaction.
+        
+        products_data is a list of dicts:
+          [{'name': str, 'description': str|None, 'pricing': [(size, price), ...]}, ...]
+        
+        Returns {'success': True, 'created': [...], 'failed': [...]}
+        """
+        conn = None
+        created = []
+        failed = []
+        try:
+            conn = self.get_connection()
+            with conn.cursor() as cursor:
+                for item in products_data:
+                    product_name = item.get('name', '').strip()
+                    description = item.get('description') or None
+                    pricing_tiers = item.get('pricing', [])
+                    
+                    if not product_name:
+                        failed.append({'name': '(empty)', 'error': 'Product name is empty'})
+                        continue
+                    
+                    if not pricing_tiers:
+                        failed.append({'name': product_name, 'error': 'No pricing tiers provided'})
+                        continue
+                    
+                    try:
+                        # Insert product (or get existing id if duplicate)
+                        cursor.execute("""
+                            INSERT INTO menu_products (category_id, name, description, active)
+                            VALUES (%s, %s, %s, TRUE)
+                            ON CONFLICT (category_id, name) DO UPDATE
+                                SET description = EXCLUDED.description,
+                                    active = TRUE
+                            RETURNING id
+                        """, (category_id, product_name, description))
+                        product_id = cursor.fetchone()['id']
+                        
+                        # Replace all pricing tiers for this product
+                        cursor.execute("DELETE FROM menu_pricing WHERE product_id = %s", (product_id,))
+                        for tier_order, (size, price) in enumerate(pricing_tiers):
+                            cursor.execute("""
+                                INSERT INTO menu_pricing (product_id, size, price, display_order)
+                                VALUES (%s, %s, %s, %s)
+                            """, (product_id, size, float(price), tier_order))
+                        
+                        created.append(product_name)
+                        logger.info(f"✅ Bulk-added product: {product_name} with {len(pricing_tiers)} tiers")
+                        
+                    except Exception as item_err:
+                        logger.error(f"❌ Bulk add failed for '{product_name}': {item_err}")
+                        failed.append({'name': product_name, 'error': str(item_err)})
+                
+                conn.commit()
+                logger.info(f"✅ Bulk add complete: {len(created)} created, {len(failed)} failed")
+                return {'success': len(created) > 0, 'created': created, 'failed': failed}
+                
+        except Exception as e:
+            if conn:
+                try:
+                    conn.rollback()
+                except:
+                    pass
+            logger.error(f"❌ Bulk add transaction error: {e}")
+            return {'success': False, 'created': created, 'failed': failed, 'error': str(e)}
+        finally:
+            if conn:
+                try:
+                    self.put_connection(conn)
+                except:
+                    pass
+
     def update_product_pricing(self, category: str, product_name: str, pricing_tiers: List[Tuple[str, float]]) -> Dict:
         """Update pricing for an existing product"""
         conn = None
