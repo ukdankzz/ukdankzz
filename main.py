@@ -1086,8 +1086,7 @@ async def get_current_ltc_price():
 
 bot = Bot(token=API_TOKEN,
           default=DefaultBotProperties(parse_mode="Markdown"))
-dp = Dispatcher(bot)
-
+dp = Dispatcher()
 from aiogram import types
 
 # (aiogram v2 @dp.message_handler removed – handled by the aiogram v3 handler below)
