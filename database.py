@@ -16,10 +16,32 @@ class DatabaseManager:
     """Handles all database operations for the UKDANKZZ bot with connection pooling for instant responses"""
     
     def __init__(self):
-        self.database_url = os.getenv('DATABASE_URL')
-        if not self.database_url:
-            raise ValueError("DATABASE_URL environment variable is required")
-        
+        # Build connection string from individual Railway PostgreSQL variables,
+        # bypassing DATABASE_URL which may be hardcoded to an external provider.
+        pg_host = os.getenv('PGHOST')
+        pg_port = os.getenv('PGPORT')
+        pg_user = os.getenv('PGUSER')
+        pg_password = os.getenv('PGPASSWORD')
+        pg_database = os.getenv('PGDATABASE')
+
+        missing = [name for name, val in [
+            ('PGHOST', pg_host),
+            ('PGPORT', pg_port),
+            ('PGUSER', pg_user),
+            ('PGPASSWORD', pg_password),
+            ('PGDATABASE', pg_database),
+        ] if not val]
+
+        if missing:
+            raise ValueError(
+                f"Missing required PostgreSQL environment variables: {', '.join(missing)}"
+            )
+
+        self.database_url = (
+            f"postgresql://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_database}"
+        )
+        logger.info(f"🔌 Connecting to PostgreSQL host: {pg_host}:{pg_port}/{pg_database}")
+
         # Initialize connection pool for FAST responses (reuse connections instead of creating new ones)
         try:
             self.connection_pool = psycopg2.pool.ThreadedConnectionPool(
