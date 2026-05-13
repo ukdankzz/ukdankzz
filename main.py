@@ -1091,7 +1091,10 @@ dp = Dispatcher()
 
 from aiogram import types
 
-@dp.message_handler(commands=['start'])
+from aiogram import types
+from aiogram.filters import Command
+
+@dp.message(Command("start"))
 async def start_cmd(message: types.Message):
     print("START COMMAND RECEIVED")
     await message.answer("Bot is online")
