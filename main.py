@@ -1926,6 +1926,7 @@ class OrderStates(StatesGroup):
     admin_deleting_order = State()
     admin_blocking_user = State()
     admin_unblocking_user = State()
+    bulk_adding_products = State()
     
 class ReviewStates(StatesGroup):
     viewing_reviews = State()
@@ -3254,7 +3255,7 @@ async def add_category_process(message: types.Message, state: FSMContext):
     # Show menu management panel again
     categories = db.get_categories() if db else []
     menu_data = db.get_dynamic_menu() if db else {}
-    total_products = sum(len(prods) for prods in menu_data.values())
+    total_products = sum(len(prods) for prods in menu_data.get('menu', {}).values())
     
     text = "🍽️ *Menu Management*\n\n"
     text += f"📊 **Current Menu:**\n"
@@ -3264,6 +3265,7 @@ async def add_category_process(message: types.Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📂 Add Category", callback_data="add_category")],
         [InlineKeyboardButton(text="🥬 Add Product", callback_data="add_product")],
+        [InlineKeyboardButton(text="📦 Bulk Add Products", callback_data="bulk_add_products_info")],
         [InlineKeyboardButton(text="🗑️ Delete Inactive Product", callback_data="remove_inactive_product")],
         [InlineKeyboardButton(text="📋 View Menu", callback_data="view_menu")],
         [InlineKeyboardButton(text="🔄 Reload Menu", callback_data="reload_menu")],
@@ -3927,6 +3929,7 @@ async def admin_menu_management(cb: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="📂 Add Category", callback_data="add_category")],
             [InlineKeyboardButton(text="🗑️ Delete Category", callback_data="delete_category")],
             [InlineKeyboardButton(text="🥬 Add Product", callback_data="add_product")],
+            [InlineKeyboardButton(text="📦 Bulk Add Products", callback_data="bulk_add_products_info")],
             [InlineKeyboardButton(text="✏️ Edit Product", callback_data="edit_product")],
             [InlineKeyboardButton(text="🔄 Toggle Product Status", callback_data="toggle_product")],
             [InlineKeyboardButton(text="🗑️ Remove Product", callback_data="remove_product")],
@@ -4069,6 +4072,7 @@ async def delete_category_confirm(cb: types.CallbackQuery, state: FSMContext):
             [InlineKeyboardButton(text="📂 Add Category", callback_data="add_category")],
             [InlineKeyboardButton(text="🗑️ Delete Category", callback_data="delete_category")],
             [InlineKeyboardButton(text="🥬 Add Product", callback_data="add_product")],
+            [InlineKeyboardButton(text="📦 Bulk Add Products", callback_data="bulk_add_products_info")],
             [InlineKeyboardButton(text="🗑️ Delete Inactive Product", callback_data="remove_inactive_product")],
             [InlineKeyboardButton(text="⬅️ Back", callback_data="admin_panel")]
         ])
@@ -4200,16 +4204,21 @@ async def view_dynamic_menu(cb: types.CallbackQuery, state: FSMContext):
     
     text = "📋 *Complete Menu Structure*\n\n"
     
-    if not menu_data:
+    menu = menu_data.get('menu', {}) if isinstance(menu_data, dict) else menu_data
+    
+    if not menu:
         text += "🔧 Menu is empty. Add categories and products to get started."
     else:
-        for category, products_dict in menu_data.items():
+        for category, products_dict in menu.items():
             text += f"**📂 {category}**\n"
             if products_dict:
                 for product, pricing in products_dict.items():
-                    text += f"  • {product}\n"
+                    # Show min price for quick reference
+                    prices = [price for _, price in pricing] if pricing else []
+                    min_price = min(prices) if prices else 0
+                    text += f"  • {product} (from £{min_price:.0f})\n"
                     for size, price in pricing:
-                        text += f"    - {size}: £{price}\n"
+                        text += f"    ↳ {size}: £{price}\n"
                 text += "\n"
             else:
                 text += "  (No products)\n\n"
@@ -4698,7 +4707,7 @@ async def add_product_pricing(message: types.Message, state: FSMContext):
     # Show menu management panel again
     categories = db.get_categories() if db else []
     menu_data = db.get_dynamic_menu() if db else {}
-    total_products = sum(len(prods) for prods in menu_data.values())
+    total_products = sum(len(prods) for prods in menu_data.get('menu', {}).values())
     
     text = "🍽️ *Menu Management*\n\n"
     text += f"📊 **Current Menu:**\n"
@@ -4708,6 +4717,7 @@ async def add_product_pricing(message: types.Message, state: FSMContext):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📂 Add Category", callback_data="add_category")],
         [InlineKeyboardButton(text="🥬 Add Product", callback_data="add_product")],
+        [InlineKeyboardButton(text="📦 Bulk Add Products", callback_data="bulk_add_products_info")],
         [InlineKeyboardButton(text="🗑️ Remove Product", callback_data="remove_product")],
         [InlineKeyboardButton(text="📋 View Menu", callback_data="view_menu")],
         [InlineKeyboardButton(text="🔄 Reload Menu", callback_data="reload_menu")],
@@ -4715,6 +4725,282 @@ async def add_product_pricing(message: types.Message, state: FSMContext):
     ])
     
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+
+# ======================== BULK PRODUCT IMPORT ========================
+
+@dp.message(Command("bulk_add_products"))
+@uncrashable
+async def bulk_add_products_command(message: types.Message, state: FSMContext):
+    """Admin command to bulk-import products with variations from a formatted text block."""
+    track_user(message.from_user)
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Access denied.")
+        return
+
+    if not db:
+        await message.answer("❌ Database unavailable.")
+        return
+
+    categories = db.get_categories()
+    if not categories:
+        await message.answer(
+            "❌ No categories exist yet. Please add at least one category first via the admin menu."
+        )
+        return
+
+    # Store categories in state for the next step
+    await state.update_data(category_list=categories)
+
+    cat_lines = "\n".join(
+        [f"  {i+1}. {cat['name']}" for i, cat in enumerate(categories)]
+    )
+
+    help_text = (
+        "📦 *Bulk Add Products*\n\n"
+        "Send your product list in the following format — one product per line:\n\n"
+        "`Product Name | Description | Variation1:Price1,Variation2:Price2`\n\n"
+        "• *Description* is optional — leave blank to skip: `Name | | Var:Price`\n"
+        "• *Prices* can include £/$/€ symbols — they are stripped automatically\n"
+        "• The first line must be: `CATEGORY: <category name>`\n\n"
+        "*Example:*\n"
+        "`CATEGORY: Flowers`\n"
+        "`Shirt | Cotton shirt | Small:15,Medium:18,Large:20`\n"
+        "`Pants | Denim jeans | 30:40,32:42,34:45`\n"
+        "`Hat | | One Size:12`\n\n"
+        f"*Available categories:*\n{cat_lines}\n\n"
+        "Send your formatted list now, or /cancel to abort."
+    )
+
+    await state.set_state(OrderStates.bulk_adding_products)
+    await message.answer(help_text, parse_mode="Markdown")
+
+
+@dp.message(OrderStates.bulk_adding_products)
+@uncrashable
+async def bulk_add_products_process(message: types.Message, state: FSMContext):
+    """Process the bulk product import text."""
+    track_user(message.from_user)
+    if not is_admin(message.from_user.id):
+        await message.answer("❌ Access denied.")
+        return
+
+    if not message.text:
+        await message.answer("❌ Please send a text message with your product list.")
+        return
+
+    text = message.text.strip()
+
+    # Allow /cancel
+    if text.lower() in ("/cancel", "cancel"):
+        await state.set_state(OrderStates.shopping)
+        await message.answer("❌ Bulk import cancelled.")
+        return
+
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    if not lines:
+        await message.answer("❌ Empty input. Please send a formatted product list.")
+        return
+
+    # First line must declare the category
+    if not lines[0].upper().startswith("CATEGORY:"):
+        await message.answer(
+            "❌ First line must specify the category.\n"
+            "Example: `CATEGORY: Flowers`",
+            parse_mode="Markdown"
+        )
+        return
+
+    category_name = lines[0].split(":", 1)[1].strip()
+
+    # Look up category id
+    data = await state.get_data()
+    categories = data.get('category_list', db.get_categories())
+    category_id = None
+    for cat in categories:
+        if cat['name'].lower() == category_name.lower():
+            category_id = cat['id']
+            category_name = cat['name']  # use canonical casing
+            break
+
+    if not category_id:
+        cat_names = ", ".join(c['name'] for c in categories)
+        await message.answer(
+            f"❌ Category *{category_name}* not found.\n"
+            f"Available categories: {cat_names}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Parse product lines (skip the CATEGORY line)
+    products_data = []
+    parse_errors = []
+
+    for line_num, line in enumerate(lines[1:], start=2):
+        parts = [p.strip() for p in line.split("|")]
+        if len(parts) < 2:
+            parse_errors.append(f"Line {line_num}: `{line}` — needs at least Name | Variations")
+            continue
+
+        product_name = parts[0].strip()
+        description = parts[1].strip() if len(parts) > 1 else ""
+        variations_raw = parts[2].strip() if len(parts) > 2 else ""
+
+        if not product_name:
+            parse_errors.append(f"Line {line_num}: empty product name")
+            continue
+
+        if not variations_raw:
+            parse_errors.append(f"Line {line_num}: `{product_name}` — no variations/pricing provided")
+            continue
+
+        # Parse variations: "Small:15,Medium:18,Large:20"
+        pricing_tiers = []
+        variation_errors = []
+        for var_part in variations_raw.split(","):
+            var_part = var_part.strip()
+            if ":" not in var_part:
+                variation_errors.append(f"`{var_part}` (missing colon)")
+                continue
+            var_name, var_price_raw = var_part.split(":", 1)
+            var_name = var_name.strip()
+            var_price_raw = var_price_raw.strip().lstrip("£$€").strip()
+            try:
+                var_price = float(var_price_raw)
+                pricing_tiers.append((var_name, var_price))
+            except ValueError:
+                variation_errors.append(f"`{var_part}` (invalid price)")
+
+        if variation_errors:
+            parse_errors.append(
+                f"Line {line_num}: `{product_name}` — bad variations: {', '.join(variation_errors)}"
+            )
+            continue
+
+        if not pricing_tiers:
+            parse_errors.append(f"Line {line_num}: `{product_name}` — no valid pricing tiers")
+            continue
+
+        products_data.append({
+            'name': product_name,
+            'description': description or None,
+            'pricing': pricing_tiers,
+        })
+
+    if not products_data:
+        error_detail = "\n".join(parse_errors[:10])
+        await message.answer(
+            f"❌ No valid products found. Parse errors:\n{error_detail}",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Perform the bulk insert
+    result = db.bulk_add_products(category_id, products_data)
+
+    # Reload the in-memory menu
+    global products, descriptions
+    menu_data = db.get_dynamic_menu()
+    products = menu_data['menu']
+    descriptions.update(menu_data['descriptions'])
+
+    # Build response
+    created = result.get('created', [])
+    failed = result.get('failed', [])
+
+    response = f"📦 *Bulk Import Complete — {category_name}*\n\n"
+    response += f"✅ *Added/Updated:* {len(created)}\n"
+    if created:
+        response += "\n".join(f"  • {name}" for name in created) + "\n"
+
+    if parse_errors:
+        response += f"\n⚠️ *Parse errors ({len(parse_errors)}):*\n"
+        response += "\n".join(parse_errors[:10])
+        if len(parse_errors) > 10:
+            response += f"\n  ...and {len(parse_errors) - 10} more"
+
+    if failed:
+        response += f"\n❌ *DB errors ({len(failed)}):*\n"
+        for f_item in failed[:5]:
+            response += f"  • {f_item['name']}: {f_item['error']}\n"
+
+    await state.set_state(OrderStates.shopping)
+
+    # Truncate if too long for Telegram
+    if len(response) > 4000:
+        response = response[:3990] + "\n…(truncated)"
+
+    await message.answer(response, parse_mode="Markdown")
+
+    # Show menu management panel
+    if db:
+        cats = db.get_categories()
+        m_data = db.get_dynamic_menu()
+        total_prods = sum(len(pd) for pd in m_data.get('menu', {}).values())
+        panel_text = (
+            "🍽️ *Menu Management*\n\n"
+            f"📊 **Current Menu:**\n"
+            f"• Categories: {len(cats)}\n"
+            f"• Total Products: {total_prods}\n"
+        )
+        panel_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📂 Add Category", callback_data="add_category")],
+            [InlineKeyboardButton(text="🥬 Add Product", callback_data="add_product")],
+            [InlineKeyboardButton(text="📦 Bulk Add Products", callback_data="bulk_add_products_info")],
+            [InlineKeyboardButton(text="🗑️ Remove Product", callback_data="remove_product")],
+            [InlineKeyboardButton(text="📋 View Menu", callback_data="view_menu")],
+            [InlineKeyboardButton(text="🔄 Reload Menu", callback_data="reload_menu")],
+            [InlineKeyboardButton(text="⬅️ Back", callback_data="admin_panel")],
+        ])
+        await message.answer(panel_text, reply_markup=panel_kb, parse_mode="Markdown")
+
+
+@dp.callback_query(F.data == "bulk_add_products_info")
+async def bulk_add_products_info(cb: types.CallbackQuery, state: FSMContext):
+    """Show bulk add instructions from the admin menu button."""
+    await cb.answer()
+    track_user(cb.from_user)
+    if not is_admin(cb.from_user.id):
+        await cb.answer("❌ Access denied.", show_alert=True)
+        return
+
+    if not db:
+        await cb.answer("❌ Database unavailable", show_alert=True)
+        return
+
+    categories = db.get_categories()
+    await state.update_data(category_list=categories)
+
+    cat_lines = "\n".join(
+        [f"  {i+1}. {cat['name']}" for i, cat in enumerate(categories)]
+    ) if categories else "  (none — add a category first)"
+
+    help_text = (
+        "📦 *Bulk Add Products*\n\n"
+        "Send your product list in the following format — one product per line:\n\n"
+        "`Product Name | Description | Variation1:Price1,Variation2:Price2`\n\n"
+        "• *Description* is optional: `Name | | Var:Price`\n"
+        "• *Prices* can include £/$/€ symbols\n"
+        "• The first line must be: `CATEGORY: <category name>`\n\n"
+        "*Example:*\n"
+        "`CATEGORY: Flowers`\n"
+        "`Shirt | Cotton shirt | Small:15,Medium:18,Large:20`\n"
+        "`Pants | Denim jeans | 30:40,32:42,34:45`\n"
+        "`Hat | | One Size:12`\n\n"
+        f"*Available categories:*\n{cat_lines}\n\n"
+        "Send your formatted list now, or /cancel to abort."
+    )
+
+    await state.set_state(OrderStates.bulk_adding_products)
+    try:
+        if (cb.message and
+                hasattr(cb.message, 'edit_text') and
+                not isinstance(cb.message, types.InaccessibleMessage)):
+            await cb.message.edit_text(help_text, parse_mode="Markdown")
+        else:
+            await bot.send_message(cb.from_user.id, help_text, parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"❌ Error showing bulk add info: {e}")
+
 
 # Handle product name editing
 @dp.message(OrderStates.editing_product_name)
@@ -5411,10 +5697,19 @@ async def show_product(cb: types.CallbackQuery):
                     if product == "Mimosa 🍹":
                         video_text = "\n🎥 [Watch video](https://www.dropbox.com/scl/fi/88yqmqvyv1n8p2b35fpn8/Mimosa.mov?rlkey=r5ogg8lw9xdqnomzxmkn8780b&st=tctga8nf&dl=0)"
 
+                    # Build variations summary for display
+                    product_options = products[section][product]
+                    sorted_options = sorted(product_options, key=lambda x: x[1])
+                    variations_text = ""
+                    if sorted_options:
+                        variations_text = "\n\n📐 *Available options:*\n"
+                        for size, price in sorted_options:
+                            variations_text += f"  • {size} — £{price:.0f}\n"
+
                     try:
                         if cb.message and hasattr(cb.message, 'edit_text') and not isinstance(cb.message, types.InaccessibleMessage):
                             await cb.message.edit_text(
-                                f"🌿 *{product}*\n{description}{video_text}\n\nSelect size/quantity:",
+                                f"🌿 *{product}*\n{description}{video_text}{variations_text}\nSelect size/quantity:",
                                 reply_markup=product_kb(section, product),
                                 parse_mode="Markdown")
                     except Exception as e:
