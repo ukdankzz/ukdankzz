@@ -101,12 +101,12 @@ class DatabaseManager:
             except Exception as e:
                 logger.warning(f"⚠️ Failed to return connection to pool: {e}")
                 try:
-                    self.put_connection(conn)
+                    conn.close()
                 except:
                     pass
         elif conn:
             try:
-                self.put_connection(conn)
+                conn.close()
             except:
                 pass
     

@@ -2,10 +2,12 @@
 import sys
 import os
 
-# CRITICAL: Only allow startup via start_bot.sh which sets BOT_START_AUTHORIZED=1
+# Allow startup via start_bot.sh (BOT_START_AUTHORIZED=1) OR Railway deployment (RAILWAY_ENVIRONMENT set)
 # This prevents .replit entrypoint from auto-running and causing duplicate bot instances
-if os.getenv('BOT_START_AUTHORIZED') != '1':
-    print("🚫 Bot start blocked: Not authorized (no BOT_START_AUTHORIZED=1)")
+_is_railway = bool(os.getenv('RAILWAY_ENVIRONMENT') or os.getenv('RAILWAY_SERVICE_NAME') or os.getenv('RAILWAY_PROJECT_ID'))
+_is_authorized = os.getenv('BOT_START_AUTHORIZED') == '1'
+if not _is_authorized and not _is_railway:
+    print("🚫 Bot start blocked: Not authorized (no BOT_START_AUTHORIZED=1 and not a Railway deployment)")
     print("ℹ️  Bot should only be started via: bash start_bot.sh")
     sys.exit(0)
 
